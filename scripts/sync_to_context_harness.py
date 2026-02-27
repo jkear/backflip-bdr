@@ -38,7 +38,7 @@ SYNC_DIR = Path(os.environ.get("CTX_SYNC_DIR", str(_ROOT / "context_harness_sync
 
 def _safe_name(s: str) -> str:
     """Slugify a string for use as a filename component."""
-    return "".join(c if c.isalnum() or c in "-_." else "_" for c in s).strip("_")
+    return "".join(c if c.isalnum() or c in "-_." else "_" for c in s).strip("_.")
 
 
 async def _sync_sequences(sync_dir: Path) -> int:

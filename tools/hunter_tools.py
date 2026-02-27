@@ -2,11 +2,14 @@
 
 Calls Hunter.io REST API directly (no official Python SDK).
 """
+import logging
 import os
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlencode
 
 import requests
+
+logger = logging.getLogger(__name__)
 
 
 HUNTER_BASE = "https://api.hunter.io/v2"
@@ -199,6 +202,12 @@ def hunter_add_recipient(
         Dict with 'campaign_id', 'added' list, and 'skipped' list.
     """
     try:
+        if len(emails) > 50:
+            logger.warning(
+                "Hunter API limit is 50 recipients per call; truncating from %d to 50. "
+                "Remaining recipients will NOT be added.",
+                len(emails),
+            )
         resp = requests.post(
             f"{HUNTER_BASE}/campaigns/{campaign_id}/recipients",
             params={"api_key": _api_key()},

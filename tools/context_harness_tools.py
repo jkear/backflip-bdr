@@ -7,8 +7,6 @@ import requests
 
 logger = logging.getLogger(__name__)
 
-CTX_BASE_URL = os.environ.get("CTX_MCP_URL", "http://127.0.0.1:7331")
-
 
 def ctx_search(query: str, limit: int = 5) -> Dict[str, Any]:
     """Search the context-harness knowledge base.
@@ -24,11 +22,13 @@ def ctx_search(query: str, limit: int = 5) -> Dict[str, Any]:
     Returns:
         Dict with 'results' list and 'query' echo. On error, includes 'error' key.
     """
+    base_url = os.environ.get("CTX_MCP_URL", "http://127.0.0.1:7331")
+    timeout = int(os.environ.get("CTX_SEARCH_TIMEOUT", "5"))
     try:
         resp = requests.post(
-            f"{CTX_BASE_URL}/tools/search",
+            f"{base_url}/tools/search",
             json={"query": query, "limit": limit},
-            timeout=int(os.environ.get("CTX_SEARCH_TIMEOUT", "5")),
+            timeout=timeout,
         )
         resp.raise_for_status()
         return {"results": resp.json().get("results", []), "query": query}

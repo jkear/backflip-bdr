@@ -81,11 +81,7 @@ def test_uses_env_vars_for_url_and_timeout(monkeypatch):
         raise requests.exceptions.ConnectionError("test")
 
     with patch("tools.context_harness_tools.requests.post", side_effect=fake_post):
-        # Re-import to pick up the new env var (module-level CTX_BASE_URL is read at call time)
-        import importlib
-        import tools.context_harness_tools as mod
-        importlib.reload(mod)
-        mod.ctx_search("test")
+        ctx_search("test")
 
     assert captured["url"] == "http://custom-host:9000/tools/search"
     assert captured["timeout"] == 10
