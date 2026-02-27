@@ -128,3 +128,138 @@ def hunter_find_email(
         }
     except Exception as exc:
         return {"email": "", "verified": False, "error": str(exc)}
+
+
+# ---------------------------------------------------------------------------
+# Hunter Campaigns (Email Sequences) — all calls are FREE
+# ---------------------------------------------------------------------------
+
+
+def hunter_create_lead(
+    email: str,
+    first_name: str = "",
+    last_name: str = "",
+    position: str = "",
+    company: str = "",
+    website: str = "",
+    leads_list_id: Optional[int] = None,
+) -> Dict[str, Any]:
+    """Create a lead in Hunter. Free API call — no credits consumed.
+
+    Args:
+        email: Lead email address (required).
+        first_name: Contact first name.
+        last_name: Contact last name.
+        position: Job title.
+        company: Company name.
+        website: Company domain.
+        leads_list_id: Optional list to add the lead to.
+
+    Returns:
+        Dict with 'lead_id' and 'email'.
+    """
+    try:
+        payload: Dict[str, Any] = {
+            "email": email,
+            "first_name": first_name,
+            "last_name": last_name,
+            "position": position,
+            "company": company,
+            "website": website,
+        }
+        if leads_list_id is not None:
+            payload["leads_list_id"] = leads_list_id
+        resp = requests.post(
+            f"{HUNTER_BASE}/leads",
+            params={"api_key": _api_key()},
+            json=payload,
+            timeout=10,
+        )
+        resp.raise_for_status()
+        data = resp.json().get("data", {})
+        return {"lead_id": data.get("id"), "email": email}
+    except Exception as exc:
+        return {"lead_id": None, "email": email, "error": str(exc)}
+
+
+def hunter_add_recipient(
+    campaign_id: int,
+    emails: List[str],
+) -> Dict[str, Any]:
+    """Add recipients to a Hunter email sequence. Free API call.
+
+    WARNING: If the sequence is already started, emails may send shortly
+    after this call — there is no undo window.
+
+    Args:
+        campaign_id: Hunter campaign/sequence ID.
+        emails: List of email addresses (max 50 per call).
+
+    Returns:
+        Dict with 'campaign_id', 'added' list, and 'skipped' list.
+    """
+    try:
+        resp = requests.post(
+            f"{HUNTER_BASE}/campaigns/{campaign_id}/recipients",
+            params={"api_key": _api_key()},
+            json={"emails": emails[:50]},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        data = resp.json().get("data", {})
+        return {
+            "campaign_id": campaign_id,
+            "added": data.get("recipients", []),
+            "skipped": data.get("skipped_recipients", []),
+        }
+    except Exception as exc:
+        return {"campaign_id": campaign_id, "added": [], "skipped": [], "error": str(exc)}
+
+
+def hunter_list_campaigns(
+    started: Optional[bool] = None,
+    limit: int = 20,
+) -> Dict[str, Any]:
+    """List email sequences in the Hunter account. Free API call.
+
+    Args:
+        started: Filter to only started (True) or not-started (False) sequences.
+        limit: Max sequences to return (1-100, default 20).
+
+    Returns:
+        Dict with 'campaigns' list.
+    """
+    try:
+        params: Dict[str, Any] = {"api_key": _api_key(), "limit": min(limit, 100)}
+        if started is not None:
+            params["started"] = str(started).lower()
+        resp = requests.get(f"{HUNTER_BASE}/campaigns", params=params, timeout=10)
+        resp.raise_for_status()
+        data = resp.json().get("data", {})
+        return {"campaigns": data.get("campaigns", [])}
+    except Exception as exc:
+        return {"campaigns": [], "error": str(exc)}
+
+
+def hunter_start_campaign(campaign_id: int) -> Dict[str, Any]:
+    """Start a Hunter email sequence. Free API call.
+
+    Once started, emails begin sending to all recipients on the configured
+    schedule. This action cannot be undone — the sequence can only be paused.
+
+    Args:
+        campaign_id: Hunter campaign/sequence ID.
+
+    Returns:
+        Dict with 'campaign_id' and 'started' status.
+    """
+    try:
+        resp = requests.put(
+            f"{HUNTER_BASE}/campaigns/{campaign_id}/start",
+            params={"api_key": _api_key()},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        return {"campaign_id": campaign_id, "started": True}
+    except Exception as exc:
+        return {"campaign_id": campaign_id, "started": False, "error": str(exc)}

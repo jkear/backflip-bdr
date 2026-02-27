@@ -16,6 +16,7 @@ from pathlib import Path
 
 from google.adk.agents import LlmAgent, SequentialAgent
 
+from tools.context_harness_tools import ctx_search
 from model_config import get_llm_model
 CLAUDE_MODEL = get_llm_model()
 
@@ -28,10 +29,17 @@ CALL_PERMISSION_TEMPLATE = (_PROMPTS_DIR / "call_permission_email.md").read_text
 response_classifier_agent = LlmAgent(
     name="ResponseClassifierAgent",
     model=CLAUDE_MODEL,
-    tools=[],
+    tools=[ctx_search],
     output_key="reply_classification",
     instruction="""
 You are an inbound reply classifier for Backflip Media's outreach campaign.
+
+BEFORE classifying, load conversation context:
+1. ctx_search("email sequence and history lead {lead_id}") — find what touch
+   they're replying to and what was in that email.
+2. ctx_search("previous replies {lead_id}") — check if this org replied before
+   and what the prior classification was.
+Include this context in your reasoning field.
 
 Classify the inbound reply in {inbound_reply} into EXACTLY ONE of:
 

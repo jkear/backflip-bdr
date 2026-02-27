@@ -13,6 +13,7 @@ from pathlib import Path
 from google.adk.agents import LlmAgent, SequentialAgent
 
 from tools.exa_tools import exa_search_companies, exa_find_contact
+from tools.context_harness_tools import ctx_search
 
 from model_config import get_llm_model
 CLAUDE_MODEL = get_llm_model()
@@ -78,7 +79,7 @@ SELF-CHECK:
 company_research_agent = LlmAgent(
     name="CompanyResearchAgent",
     model=CLAUDE_MODEL,
-    tools=[exa_search_companies, exa_find_contact],
+    tools=[ctx_search, exa_search_companies, exa_find_contact],
     output_key="researched_leads",
     instruction="""
 You are a sales researcher. For each lead in {scored_leads}.qualified_leads,
@@ -117,6 +118,13 @@ Return the full qualified_leads list with personalization_hook added to each:
     }}
   ]
 }}
+
+BEFORE searching Exa, check internal history for each lead:
+4. ctx_search("email history [company name]") — if we've contacted this org
+   before, do NOT repeat the same hook.
+5. ctx_search("personalization hooks that converted for [event_type] organizers")
+   — use winning patterns from past campaigns.
+If ctx_search returns empty results, proceed with Exa as normal.
 
 SELF-CHECK:
 - [ ] Every lead has a personalization_hook (not null, not generic)

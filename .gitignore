@@ -17,3 +17,7 @@ wheels/
 
 # Generated output
 output/
+
+# context-harness derived read cache + SQLite store
+context_harness_sync/
+.ctx/
