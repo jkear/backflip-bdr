@@ -276,6 +276,47 @@ async def run_discovery(lead_limit: int = 10) -> dict:
         except Exception as e:
             logger.warning("DB write failed after Stage 2 (pipeline continues): %s", e, exc_info=True)
 
+    # --- Stage 2.5: Push recipients to Hunter email sequence (optional) ---
+    hunter_campaign_id = os.environ.get("HUNTER_CAMPAIGN_ID")
+    if hunter_campaign_id and sequences:
+        try:
+            from tools.hunter_tools import hunter_create_lead, hunter_add_recipient, hunter_start_campaign
+
+            print("\n[Stage 2.5] Pushing recipients to Hunter campaign...")
+            recipient_emails = []
+            for seq in sequences:
+                contacts = seq.get("contacts", [])
+                lead_name = seq.get("lead_name", "")
+                if contacts:
+                    email = contacts[0]
+                    hunter_create_lead(
+                        email=email,
+                        company=lead_name,
+                    )
+                    recipient_emails.append(email)
+
+            if recipient_emails:
+                result = hunter_add_recipient(
+                    campaign_id=int(hunter_campaign_id),
+                    emails=recipient_emails,
+                )
+                added_count = len(result.get("added", []))
+                skipped_count = len(result.get("skipped", []))
+                print(f"  Added {added_count} recipients (skipped {skipped_count})")
+                logger.info(
+                    "Added %d recipients to Hunter campaign %s (skipped: %d)",
+                    added_count, hunter_campaign_id, skipped_count,
+                )
+
+                if os.environ.get("HUNTER_AUTO_START", "false").lower() == "true":
+                    start_result = hunter_start_campaign(int(hunter_campaign_id))
+                    if start_result.get("started"):
+                        print("  Campaign started — emails are now sending")
+                    else:
+                        print(f"  Campaign start failed: {start_result.get('error', 'unknown')}")
+        except Exception as e:
+            logger.warning("Hunter campaign push failed (pipeline continues): %s", e, exc_info=True)
+
     return {**discovery_state, **outreach_state}
 
 

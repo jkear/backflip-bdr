@@ -1,4 +1,8 @@
-"""Exa semantic search tools for Google ADK agents."""
+"""Exa semantic search tools for Google ADK agents.
+
+Uses highlights mode for token-efficient results (Exa best practice for agentic
+workflows). See https://exa.ai/docs/reference/search-best-practices
+"""
 import os
 from typing import Any, Dict, List, Optional
 
@@ -22,22 +26,25 @@ def exa_search_companies(
         category: Exa category filter (default: "company").
 
     Returns:
-        Dict with 'results' list, each containing url, title, text, highlights.
+        Dict with 'results' list, each containing url, title, highlights.
     """
     try:
         client = _client()
-        response = client.search_and_contents(
+        response = client.search(
             query,
             num_results=min(num_results, 25),
+            type="auto",
             category=category,
-            text=True,
-            highlights=True,
+            contents={
+                "highlights": {
+                    "maxCharacters": 4000,
+                }
+            },
         )
         results = [
             {
                 "url": r.url,
                 "title": r.title or "",
-                "text": (r.text or "")[:2000],
                 "highlights": r.highlights or [],
             }
             for r in response.results
@@ -66,12 +73,22 @@ def exa_find_contact(company_name: str, domain: str) -> Dict[str, Any]:
     client = _client()
     for q in queries:
         try:
-            resp = client.search_and_contents(q, num_results=3, text=True)
+            resp = client.search(
+                q,
+                num_results=3,
+                type="auto",
+                category="people",
+                contents={
+                    "highlights": {
+                        "maxCharacters": 2000,
+                    }
+                },
+            )
             for r in resp.results:
                 all_results.append({
                     "url": r.url,
                     "title": r.title or "",
-                    "text": (r.text or "")[:1000],
+                    "highlights": r.highlights or [],
                 })
         except Exception:
             continue
