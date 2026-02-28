@@ -49,10 +49,7 @@ class TestHunterAddRecipient:
         mock_resp = MagicMock()
         mock_resp.json.return_value = {
             "data": {
-                "recipients": [
-                    {"email": "a@test.com", "sending_status": "pending"},
-                    {"email": "b@test.com", "sending_status": "pending"},
-                ],
+                "recipients_added": 2,
                 "skipped_recipients": [],
             }
         }
@@ -63,8 +60,8 @@ class TestHunterAddRecipient:
         result = hunter_add_recipient(campaign_id=123, emails=["a@test.com", "b@test.com"])
 
         assert result["campaign_id"] == 123
-        assert len(result["added"]) == 2
-        assert len(result["skipped"]) == 0
+        assert result["recipients_added"] == 2
+        assert len(result["skipped_recipients"]) == 0
 
     @patch(f"{HUNTER_MODULE}.requests.post")
     @patch(f"{HUNTER_MODULE}._api_key", return_value="test-key")
@@ -88,7 +85,7 @@ class TestHunterAddRecipient:
         mock_resp = MagicMock()
         mock_resp.json.return_value = {
             "data": {
-                "recipients": [{"email": "a@test.com"}],
+                "recipients_added": 1,
                 "skipped_recipients": [
                     {"email": "b@test.com", "reason": "duplicate"},
                 ],
@@ -100,8 +97,8 @@ class TestHunterAddRecipient:
         from tools.hunter_tools import hunter_add_recipient
         result = hunter_add_recipient(campaign_id=1, emails=["a@test.com", "b@test.com"])
 
-        assert len(result["skipped"]) == 1
-        assert result["skipped"][0]["reason"] == "duplicate"
+        assert len(result["skipped_recipients"]) == 1
+        assert result["skipped_recipients"][0]["reason"] == "duplicate"
 
     @patch(f"{HUNTER_MODULE}.requests.post")
     @patch(f"{HUNTER_MODULE}._api_key", return_value="test-key")
@@ -111,7 +108,7 @@ class TestHunterAddRecipient:
         from tools.hunter_tools import hunter_add_recipient
         result = hunter_add_recipient(campaign_id=1, emails=["a@test.com"])
 
-        assert result["added"] == []
+        assert result["recipients_added"] == 0
         assert "error" in result
 
 
@@ -138,23 +135,30 @@ class TestHunterListCampaigns:
 
 
 class TestHunterStartCampaign:
-    @patch(f"{HUNTER_MODULE}.requests.put")
+    @patch(f"{HUNTER_MODULE}.requests.post")
     @patch(f"{HUNTER_MODULE}._api_key", return_value="test-key")
-    def test_starts_campaign(self, mock_key, mock_put):
+    def test_starts_campaign(self, mock_key, mock_post):
         mock_resp = MagicMock()
+        mock_resp.json.return_value = {
+            "data": {
+                "message": "42 emails scheduled for sending.",
+                "recipients_count": 21,
+            }
+        }
         mock_resp.raise_for_status.return_value = None
-        mock_put.return_value = mock_resp
+        mock_post.return_value = mock_resp
 
         from tools.hunter_tools import hunter_start_campaign
         result = hunter_start_campaign(campaign_id=42)
 
         assert result["started"] is True
         assert result["campaign_id"] == 42
+        assert result["recipients_count"] == 21
 
-    @patch(f"{HUNTER_MODULE}.requests.put")
+    @patch(f"{HUNTER_MODULE}.requests.post")
     @patch(f"{HUNTER_MODULE}._api_key", return_value="test-key")
-    def test_handles_error(self, mock_key, mock_put):
-        mock_put.side_effect = RuntimeError("forbidden")
+    def test_handles_error(self, mock_key, mock_post):
+        mock_post.side_effect = RuntimeError("forbidden")
 
         from tools.hunter_tools import hunter_start_campaign
         result = hunter_start_campaign(campaign_id=42)
