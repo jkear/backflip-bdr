@@ -101,9 +101,9 @@ Set personalization_hook to a 1-sentence observation. Examples:
   "You're running three regional expos this year — that's a lot of ad campaigns to coordinate."
   "Noticed you're hiring a Marketing Manager — looks like you're scaling the events team."
 
-Return the full qualified_leads list with personalization_hook added to each:
-{{
-  "researched_leads": [
+Return the full qualified_leads list with personalization_hook added to each.
+Return ONLY the JSON array directly (no wrapper object):
+[
     {{
       "name": "...",
       "website": "...",
@@ -116,8 +116,7 @@ Return the full qualified_leads list with personalization_hook added to each:
       "score_dimensions": {{...}},
       "personalization_hook": "Specific observation about their events or situation."
     }}
-  ]
-}}
+]
 
 BEFORE searching Exa, check internal history for each lead:
 4. ctx_search("email history [company name]") — if we've contacted this org
@@ -149,10 +148,8 @@ email_copywriter_agent = LlmAgent(
 ICP CONTEXT:
 {{icp_profile}}
 
-LEADS TO WRITE FOR:
+LEADS TO WRITE FOR (iterate over each lead in this array):
 {{researched_leads}}
-
-(The researched_leads JSON above contains a "researched_leads" array. Iterate over each item in that array.)
 
 YOUR TASK:
 Write a 3-touch email sequence for each lead. Each sequence targets the PRIMARY

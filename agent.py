@@ -59,6 +59,13 @@ OUTPUT_DIR = Path(__file__).parent / "output"
 OUTPUT_DIR.mkdir(exist_ok=True)
 
 
+def _extract_domain(website: str) -> str:
+    """Extract a clean domain from a website URL, stripping scheme and www prefix."""
+    parsed = urllib.parse.urlparse(website)
+    netloc = parsed.netloc or website  # fallback for scheme-less URLs
+    return netloc.removeprefix("www.")
+
+
 async def run_agent(team, session_id: str, message: str) -> dict:
     """Run a team and return the final session state."""
     session_service = InMemorySessionService()
@@ -139,9 +146,7 @@ async def run_discovery(lead_limit: int = 10) -> dict:
         async with get_db() as session:
             for lead in qualified:
                 website = lead.get("website", "")
-                parsed = urllib.parse.urlparse(website)
-                netloc = parsed.netloc or website  # fallback for scheme-less URLs
-                domain = netloc.removeprefix("www.")
+                domain = _extract_domain(website)
                 if not domain:
                     logger.warning("Lead %r has no parseable domain — skipping", lead.get("name"))
                     continue
@@ -202,9 +207,7 @@ async def run_discovery(lead_limit: int = 10) -> dict:
                 persisted_orgs: dict[str, object] = {}
                 for lead in qualified:
                     website = lead.get("website", "")
-                    parsed = urllib.parse.urlparse(website)
-                    netloc = parsed.netloc or website  # fallback for scheme-less URLs
-                    domain = netloc.removeprefix("www.")
+                    domain = _extract_domain(website)
                     if domain:
                         org = await org_repo.get_by_domain(session, domain)
                         if org:
@@ -307,6 +310,7 @@ async def run_discovery(lead_limit: int = 10) -> dict:
             else:
                 _email_re = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
                 recipient_emails = []
+                recipient_lead_ids = []
                 for seq in sequences:
                     contacts = seq.get("contacts", [])
                     lead_name = seq.get("lead_name", "")
@@ -323,6 +327,7 @@ async def run_discovery(lead_limit: int = 10) -> dict:
                         )
                         if lead_result.get("lead_id") is not None:
                             recipient_emails.append(email)
+                            recipient_lead_ids.append(lead_result["lead_id"])
                         else:
                             logger.warning(
                                 "Skipping recipient %s — lead creation failed: %s",
@@ -333,13 +338,18 @@ async def run_discovery(lead_limit: int = 10) -> dict:
                     result = hunter_add_recipient(
                         campaign_id=int(hunter_campaign_id),
                         emails=recipient_emails,
+                        lead_ids=recipient_lead_ids,
                     )
-                    added_count = len(result.get("added", []))
-                    skipped_count = len(result.get("skipped", []))
-                    print(f"  Added {added_count} recipients (skipped {skipped_count})")
+                    added_count = result.get("recipients_added", 0)
+                    skipped = result.get("skipped_recipients", [])
+                    print(f"  Added {added_count} recipients (skipped {len(skipped)})")
+                    for skip in skipped:
+                        logger.info(
+                            "  Skipped %s: %s", skip.get("email", "?"), skip.get("reason", "unknown"),
+                        )
                     logger.info(
                         "Added %d recipients to Hunter campaign %s (skipped: %d)",
-                        added_count, hunter_campaign_id, skipped_count,
+                        added_count, hunter_campaign_id, len(skipped),
                     )
 
                     if os.environ.get("HUNTER_AUTO_START", "false").lower() == "true":
