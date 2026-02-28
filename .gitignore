@@ -22,3 +22,10 @@ output/
 context_harness_sync/
 .ctx/
 config/ctx.toml
+
+docs/
+RecycleBin/
+
+# Scratch / research files
+exa-docs.md.txt
+code-review.md
