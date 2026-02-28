@@ -17,3 +17,15 @@ wheels/
 
 # Generated output
 output/
+
+# context-harness derived read cache + SQLite store
+context_harness_sync/
+.ctx/
+config/ctx.toml
+
+docs/
+RecycleBin/
+
+# Scratch / research files
+exa-docs.md.txt
+code-review.md

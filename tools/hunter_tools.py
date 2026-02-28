@@ -2,11 +2,14 @@
 
 Calls Hunter.io REST API directly (no official Python SDK).
 """
+import logging
 import os
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlencode
 
 import requests
+
+logger = logging.getLogger(__name__)
 
 
 HUNTER_BASE = "https://api.hunter.io/v2"
@@ -185,6 +188,7 @@ def hunter_create_lead(
 def hunter_add_recipient(
     campaign_id: int,
     emails: List[str],
+    lead_ids: Optional[List[int]] = None,
 ) -> Dict[str, Any]:
     """Add recipients to a Hunter email sequence. Free API call.
 
@@ -194,26 +198,37 @@ def hunter_add_recipient(
     Args:
         campaign_id: Hunter campaign/sequence ID.
         emails: List of email addresses (max 50 per call).
+        lead_ids: Optional list of Hunter lead IDs (max 50 per call).
+            At least one of emails or lead_ids must be provided.
 
     Returns:
-        Dict with 'campaign_id', 'added' list, and 'skipped' list.
+        Dict with 'campaign_id', 'recipients_added' (int), and 'skipped_recipients' (list).
     """
     try:
+        if len(emails) > 50:
+            logger.warning(
+                "Hunter API limit is 50 recipients per call; truncating from %d to 50. "
+                "Remaining recipients will NOT be added.",
+                len(emails),
+            )
+        payload: Dict[str, Any] = {"emails": emails[:50]}
+        if lead_ids:
+            payload["lead_ids"] = lead_ids[:50]
         resp = requests.post(
             f"{HUNTER_BASE}/campaigns/{campaign_id}/recipients",
             params={"api_key": _api_key()},
-            json={"emails": emails[:50]},
+            json=payload,
             timeout=10,
         )
         resp.raise_for_status()
         data = resp.json().get("data", {})
         return {
             "campaign_id": campaign_id,
-            "added": data.get("recipients", []),
-            "skipped": data.get("skipped_recipients", []),
+            "recipients_added": data.get("recipients_added", 0),
+            "skipped_recipients": data.get("skipped_recipients", []),
         }
     except Exception as exc:
-        return {"campaign_id": campaign_id, "added": [], "skipped": [], "error": str(exc)}
+        return {"campaign_id": campaign_id, "recipients_added": 0, "skipped_recipients": [], "error": str(exc)}
 
 
 def hunter_list_campaigns(
@@ -254,12 +269,19 @@ def hunter_start_campaign(campaign_id: int) -> Dict[str, Any]:
         Dict with 'campaign_id' and 'started' status.
     """
     try:
-        resp = requests.put(
+        resp = requests.post(
             f"{HUNTER_BASE}/campaigns/{campaign_id}/start",
             params={"api_key": _api_key()},
+            json={},
             timeout=10,
         )
         resp.raise_for_status()
-        return {"campaign_id": campaign_id, "started": True}
+        data = resp.json().get("data", {})
+        return {
+            "campaign_id": campaign_id,
+            "started": True,
+            "message": data.get("message", ""),
+            "recipients_count": data.get("recipients_count", 0),
+        }
     except Exception as exc:
         return {"campaign_id": campaign_id, "started": False, "error": str(exc)}

@@ -23,6 +23,7 @@ import asyncio
 import json
 import logging
 import os
+import subprocess
 import sys
 import urllib.parse
 import uuid
@@ -56,6 +57,13 @@ logger = logging.getLogger(__name__)
 
 OUTPUT_DIR = Path(__file__).parent / "output"
 OUTPUT_DIR.mkdir(exist_ok=True)
+
+
+def _extract_domain(website: str) -> str:
+    """Extract a clean domain from a website URL, stripping scheme and www prefix."""
+    parsed = urllib.parse.urlparse(website)
+    netloc = parsed.netloc or website  # fallback for scheme-less URLs
+    return netloc.removeprefix("www.")
 
 
 async def run_agent(team, session_id: str, message: str) -> dict:
@@ -138,9 +146,7 @@ async def run_discovery(lead_limit: int = 10) -> dict:
         async with get_db() as session:
             for lead in qualified:
                 website = lead.get("website", "")
-                parsed = urllib.parse.urlparse(website)
-                netloc = parsed.netloc or website  # fallback for scheme-less URLs
-                domain = netloc.removeprefix("www.")
+                domain = _extract_domain(website)
                 if not domain:
                     logger.warning("Lead %r has no parseable domain — skipping", lead.get("name"))
                     continue
@@ -201,9 +207,7 @@ async def run_discovery(lead_limit: int = 10) -> dict:
                 persisted_orgs: dict[str, object] = {}
                 for lead in qualified:
                     website = lead.get("website", "")
-                    parsed = urllib.parse.urlparse(website)
-                    netloc = parsed.netloc or website  # fallback for scheme-less URLs
-                    domain = netloc.removeprefix("www.")
+                    domain = _extract_domain(website)
                     if domain:
                         org = await org_repo.get_by_domain(session, domain)
                         if org:
@@ -280,42 +284,97 @@ async def run_discovery(lead_limit: int = 10) -> dict:
     hunter_campaign_id = os.environ.get("HUNTER_CAMPAIGN_ID")
     if hunter_campaign_id and sequences:
         try:
-            from tools.hunter_tools import hunter_create_lead, hunter_add_recipient, hunter_start_campaign
+            import re
+            from tools.hunter_tools import (
+                hunter_create_lead, hunter_add_recipient,
+                hunter_list_campaigns, hunter_start_campaign,
+            )
 
             print("\n[Stage 2.5] Pushing recipients to Hunter campaign...")
-            recipient_emails = []
-            for seq in sequences:
-                contacts = seq.get("contacts", [])
-                lead_name = seq.get("lead_name", "")
-                if contacts:
-                    email = contacts[0]
-                    hunter_create_lead(
-                        email=email,
-                        company=lead_name,
+
+            # C1 fix: refuse to add recipients to an already-started campaign
+            campaigns_result = hunter_list_campaigns()
+            campaign_info = next(
+                (c for c in campaigns_result.get("campaigns", [])
+                 if c.get("id") == int(hunter_campaign_id)),
+                None,
+            )
+            if campaign_info and campaign_info.get("started"):
+                logger.warning(
+                    "Hunter campaign %s is already STARTED — skipping recipient add "
+                    "to avoid unreviewed email sends. Pause the campaign first or use "
+                    "a draft campaign.",
+                    hunter_campaign_id,
+                )
+                print("  SKIPPED — campaign is already started (pause it first)")
+            else:
+                _email_re = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+                recipient_emails = []
+                recipient_lead_ids = []
+                for seq in sequences:
+                    contacts = seq.get("contacts", [])
+                    lead_name = seq.get("lead_name", "")
+                    if contacts:
+                        email = contacts[0]
+                        # L2 fix: basic email format validation
+                        if not _email_re.match(email):
+                            logger.warning("Skipping invalid email: %r", email)
+                            continue
+                        # C2 fix: check create_lead result before adding to recipients
+                        lead_result = hunter_create_lead(
+                            email=email,
+                            company=lead_name,
+                        )
+                        if lead_result.get("lead_id") is not None:
+                            recipient_emails.append(email)
+                            recipient_lead_ids.append(lead_result["lead_id"])
+                        else:
+                            logger.warning(
+                                "Skipping recipient %s — lead creation failed: %s",
+                                email, lead_result.get("error", "unknown"),
+                            )
+
+                if recipient_emails:
+                    result = hunter_add_recipient(
+                        campaign_id=int(hunter_campaign_id),
+                        emails=recipient_emails,
+                        lead_ids=recipient_lead_ids,
                     )
-                    recipient_emails.append(email)
+                    added_count = result.get("recipients_added", 0)
+                    skipped = result.get("skipped_recipients", [])
+                    print(f"  Added {added_count} recipients (skipped {len(skipped)})")
+                    for skip in skipped:
+                        logger.info(
+                            "  Skipped %s: %s", skip.get("email", "?"), skip.get("reason", "unknown"),
+                        )
+                    logger.info(
+                        "Added %d recipients to Hunter campaign %s (skipped: %d)",
+                        added_count, hunter_campaign_id, len(skipped),
+                    )
 
-            if recipient_emails:
-                result = hunter_add_recipient(
-                    campaign_id=int(hunter_campaign_id),
-                    emails=recipient_emails,
-                )
-                added_count = len(result.get("added", []))
-                skipped_count = len(result.get("skipped", []))
-                print(f"  Added {added_count} recipients (skipped {skipped_count})")
-                logger.info(
-                    "Added %d recipients to Hunter campaign %s (skipped: %d)",
-                    added_count, hunter_campaign_id, skipped_count,
-                )
-
-                if os.environ.get("HUNTER_AUTO_START", "false").lower() == "true":
-                    start_result = hunter_start_campaign(int(hunter_campaign_id))
-                    if start_result.get("started"):
-                        print("  Campaign started — emails are now sending")
-                    else:
-                        print(f"  Campaign start failed: {start_result.get('error', 'unknown')}")
+                    if os.environ.get("HUNTER_AUTO_START", "false").lower() == "true":
+                        start_result = hunter_start_campaign(int(hunter_campaign_id))
+                        if start_result.get("started"):
+                            print("  Campaign started — emails are now sending")
+                        else:
+                            print(f"  Campaign start failed: {start_result.get('error', 'unknown')}")
         except Exception as e:
             logger.warning("Hunter campaign push failed (pipeline continues): %s", e, exc_info=True)
+
+    # --- Optional: fire-and-forget sync to context-harness after Stage 2 persist ---
+    if os.environ.get("CTX_SYNC_ENABLED", "false").lower() == "true":
+        try:
+            sync_script = Path(__file__).parent / "scripts" / "sync_to_context_harness.py"
+            sync_log = OUTPUT_DIR / "sync_to_context_harness.log"
+            sync_log_fh = open(sync_log, "a")
+            proc = subprocess.Popen(
+                [sys.executable, str(sync_script)],
+                stdout=sync_log_fh,
+                stderr=subprocess.STDOUT,
+            )
+            logger.info("Fired sync_to_context_harness.py (pid=%d)", proc.pid)
+        except Exception as e:
+            logger.warning("Failed to launch sync_to_context_harness.py: %s", e)
 
     return {**discovery_state, **outreach_state}
 
